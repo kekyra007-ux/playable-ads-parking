@@ -1,23 +1,23 @@
-import { Container, Graphics, Sprite } from 'pixi.js';
-import type { InteractionEvent } from 'pixi.js';
-import { gsap } from 'gsap';
-import { AssetLoader } from '@/core/AssetLoader';
-import { Scene } from '@/core/Scene';
-import { COLORS, GAME_CONFIG, SCENE_LAYERS } from '@/config/gameConfig';
-import { Car } from '@/entities/Car';
-import { HintHand } from '@/entities/HintHand';
-import { ParkingSlot } from '@/entities/ParkingSlot';
-import { GameplayController } from '@/core/GameplayController';
-import { PathDrawer } from '@/ui/PathDrawer';
-import { FinalOverlay } from '@/ui/FinalOverlay';
-import { containScale } from '@/utils/layout';
+import { Container, Graphics, Sprite } from "pixi.js";
+import type { InteractionEvent } from "pixi.js";
+import { gsap } from "gsap";
+import { AssetLoader } from "@/core/AssetLoader";
+import { Scene } from "@/core/Scene";
+import { COLORS, GAME_CONFIG, SCENE_LAYERS } from "@/config/gameConfig";
+import { Car } from "@/entities/Car";
+import { HintHand } from "@/entities/HintHand";
+import { ParkingSlot } from "@/entities/ParkingSlot";
+import { GameplayController } from "@/core/GameplayController";
+import { PathDrawer } from "@/ui/PathDrawer";
+import { FinalOverlay } from "@/ui/FinalOverlay";
+import { containScale } from "@/utils/layout";
 import {
   computePathLength,
   findPathsIntersection,
   getAngleAtLength,
   getPointAtLength,
-} from '@/utils/path';
-import type { CarColor, Point } from '@/core/types';
+} from "@/utils/path";
+import type { CarColor, Point } from "@/core/types";
 
 // ─── Layout constants (design space 1080 × 1920) ─────────────────────────────
 
@@ -39,7 +39,7 @@ const SLOT_HIT_RADIUS = 160;
 const DRIVE_DURATION = 1.4;
 
 export class StartScene extends Scene {
-  public readonly id = 'start';
+  public readonly id = "start";
 
   // Containers
   private readonly root: Container;
@@ -74,7 +74,10 @@ export class StartScene extends Scene {
   private activeColor: CarColor | null = null;
   private inactivityTimerId: number | null = null;
 
-  public constructor(game: import('@/core/Game').Game) {
+  // Animation tracking for cleanup
+  private activeAnimations: (gsap.core.Tween | gsap.core.Timeline)[] = [];
+
+  public constructor(game: import("@/core/Game").Game) {
     super(game);
 
     // ── Containers ──────────────────────────────────────────────────────────
@@ -93,37 +96,37 @@ export class StartScene extends Scene {
 
     // ── Parking slots ────────────────────────────────────────────────────────
     // Bay 2 = yellow P (left empty slot), Bay 3 = red P (right empty slot)
-    this.yellowSlot = new ParkingSlot({ color: COLORS.yellow, label: 'P' });
-    this.redSlot = new ParkingSlot({ color: COLORS.red, label: 'P' });
+    this.yellowSlot = new ParkingSlot({ color: COLORS.yellow, label: "P" });
+    this.redSlot = new ParkingSlot({ color: COLORS.red, label: "P" });
 
     // ── Decorative (non-interactive) parked cars ─────────────────────────────
-    this.greenCarSprite = new Sprite(AssetLoader.getTexture('greenCar'));
+    this.greenCarSprite = new Sprite(AssetLoader.getTexture("greenCar"));
     this.greenCarSprite.anchor.set(0.5);
     this.greenCarSprite.width = 200;
     this.greenCarSprite.height = 200;
 
-    this.blueCarSprite = new Sprite(AssetLoader.getTexture('blueCar'));
+    this.blueCarSprite = new Sprite(AssetLoader.getTexture("blueCar"));
     this.blueCarSprite.anchor.set(0.5);
     this.blueCarSprite.width = 200;
     this.blueCarSprite.height = 200;
 
     // ── Interactive cars ─────────────────────────────────────────────────────
     this.redCar = new Car({
-      colorName: 'red',
-      texture: AssetLoader.getTexture('redCar'),
+      colorName: "red",
+      texture: AssetLoader.getTexture("redCar"),
       interactive: true,
       width: 220,
       height: 220,
     });
     this.yellowCar = new Car({
-      colorName: 'yellow',
-      texture: AssetLoader.getTexture('yellowCar'),
+      colorName: "yellow",
+      texture: AssetLoader.getTexture("yellowCar"),
       interactive: true,
       width: 220,
       height: 220,
     });
 
-    this.hintHand = new HintHand(AssetLoader.getTexture('hand'));
+    this.hintHand = new HintHand(AssetLoader.getTexture("hand"));
 
     // ── Path drawing ─────────────────────────────────────────────────────────
     this.controller = new GameplayController();
@@ -132,8 +135,8 @@ export class StartScene extends Scene {
 
     // ── End screens ──────────────────────────────────────────────────────────
     this.finalOverlay = new FinalOverlay(
-      AssetLoader.getTexture('gameLogo'),
-      AssetLoader.getTexture('button'),
+      AssetLoader.getTexture("gameLogo"),
+      AssetLoader.getTexture("button"),
     );
     this.finalOverlay.zIndex = SCENE_LAYERS.overlay;
 
@@ -181,7 +184,12 @@ export class StartScene extends Scene {
     this.border.drawRoundedRect(BW / 2, BW / 2, width - BW, height - BW, 26);
 
     // Scale root (design → screen)
-    const fit = containScale(width, height, GAME_CONFIG.designWidth, GAME_CONFIG.designHeight);
+    const fit = containScale(
+      width,
+      height,
+      GAME_CONFIG.designWidth,
+      GAME_CONFIG.designHeight,
+    );
     this.root.scale.set(fit.scale);
     this.root.position.set(fit.offsetX, fit.offsetY);
 
@@ -196,12 +204,17 @@ export class StartScene extends Scene {
 
   public override destroyScene(): void {
     this.clearInactivityTimeout();
+
+    // Kill all active animations
+    this.activeAnimations.forEach((tween) => tween.kill());
+    this.activeAnimations = [];
+
     this.hintHand.stop();
     this.redCar.removeAllListeners();
     this.yellowCar.removeAllListeners();
-    this.game.app.stage.off('pointermove', this.onStagePointerMove);
-    this.game.app.stage.off('pointerup', this.onStagePointerUp);
-    this.game.app.stage.off('pointerupoutside', this.onStagePointerUp);
+    this.game.app.stage.off("pointermove", this.onStagePointerMove);
+    this.game.app.stage.off("pointerup", this.onStagePointerUp);
+    this.game.app.stage.off("pointerupoutside", this.onStagePointerUp);
     super.destroyScene();
   }
 
@@ -213,7 +226,13 @@ export class StartScene extends Scene {
 
     // Gray background
     this.parkingArea.beginFill(0x5e5e5e, 0.95);
-    this.parkingArea.drawRoundedRect(PARKING_X, PARKING_Y, PARKING_W, PARKING_H, 36);
+    this.parkingArea.drawRoundedRect(
+      PARKING_X,
+      PARKING_Y,
+      PARKING_W,
+      PARKING_H,
+      36,
+    );
     this.parkingArea.endFill();
 
     // White vertical bay dividers (inner only — 3 dividers create 4 bays)
@@ -273,37 +292,53 @@ export class StartScene extends Scene {
     const stage = this.game.app.stage;
     stage.interactive = true;
 
-    this.redCar.on('pointerdown', (e: InteractionEvent) => {
+    this.redCar.on("pointerdown", (e: InteractionEvent) => {
       if (!this.redCar.enabled) return;
       this.hintHand.fadeOutAndStop();
       this.resetInactivity();
-      this.activeColor = 'red';
+      this.activeColor = "red";
       const pt = this.toDesignSpace(e.data.global.x, e.data.global.y);
-      this.controller.beginPath('red', pt);
-      gsap.fromTo(
+      this.controller.beginPath("red", pt);
+      const tween = gsap.fromTo(
         this.redCar.scale,
         { x: 1, y: 1 },
-        { x: 1.06, y: 1.06, duration: 0.12, yoyo: true, repeat: 1, ease: 'power1.out' },
+        {
+          x: 1.06,
+          y: 1.06,
+          duration: 0.12,
+          yoyo: true,
+          repeat: 1,
+          ease: "power1.out",
+        },
       );
+      this.activeAnimations.push(tween);
     });
 
-    this.yellowCar.on('pointerdown', (e: InteractionEvent) => {
+    this.yellowCar.on("pointerdown", (e: InteractionEvent) => {
       if (!this.yellowCar.enabled) return;
       this.hintHand.fadeOutAndStop();
       this.resetInactivity();
-      this.activeColor = 'yellow';
+      this.activeColor = "yellow";
       const pt = this.toDesignSpace(e.data.global.x, e.data.global.y);
-      this.controller.beginPath('yellow', pt);
-      gsap.fromTo(
+      this.controller.beginPath("yellow", pt);
+      const tween = gsap.fromTo(
         this.yellowCar.scale,
         { x: 1, y: 1 },
-        { x: 1.06, y: 1.06, duration: 0.12, yoyo: true, repeat: 1, ease: 'power1.out' },
+        {
+          x: 1.06,
+          y: 1.06,
+          duration: 0.12,
+          yoyo: true,
+          repeat: 1,
+          ease: "power1.out",
+        },
       );
+      this.activeAnimations.push(tween);
     });
 
-    stage.on('pointermove', this.onStagePointerMove);
-    stage.on('pointerup', this.onStagePointerUp);
-    stage.on('pointerupoutside', this.onStagePointerUp);
+    stage.on("pointermove", this.onStagePointerMove);
+    stage.on("pointerup", this.onStagePointerUp);
+    stage.on("pointerupoutside", this.onStagePointerUp);
   }
 
   private readonly onStagePointerMove = (e: InteractionEvent): void => {
@@ -321,8 +356,8 @@ export class StartScene extends Scene {
   private redrawPath(color: CarColor): void {
     const path = this.controller.getPath(color);
     if (!path) return;
-    const drawer = color === 'red' ? this.redPathDrawer : this.yellowPathDrawer;
-    drawer.draw(path.points, color === 'red' ? COLORS.red : COLORS.yellow);
+    const drawer = color === "red" ? this.redPathDrawer : this.yellowPathDrawer;
+    drawer.draw(path.points, color === "red" ? COLORS.red : COLORS.yellow);
   }
 
   private finalizeActivePath(): void {
@@ -338,20 +373,21 @@ export class StartScene extends Scene {
 
     const lastPoint = path.points[path.points.length - 1];
     // Red car → red slot (bay 3), yellow car → yellow slot (bay 2)
-    const targetSlot = color === 'red' ? this.redSlot : this.yellowSlot;
+    const targetSlot = color === "red" ? this.redSlot : this.yellowSlot;
     const target = targetSlot.targetPoint;
     const dist = Math.hypot(lastPoint.x - target.x, lastPoint.y - target.y);
 
     if (dist <= SLOT_HIT_RADIUS) {
       this.controller.lockPath(color);
-      const car = color === 'red' ? this.redCar : this.yellowCar;
+      const car = color === "red" ? this.redCar : this.yellowCar;
       car.setInteractiveState(false);
       if (this.controller.areBothPathsReady) {
         void this.startCarAnimation();
       }
     } else {
       this.controller.resetPath(color);
-      const drawer = color === 'red' ? this.redPathDrawer : this.yellowPathDrawer;
+      const drawer =
+        color === "red" ? this.redPathDrawer : this.yellowPathDrawer;
       drawer.reset();
     }
   }
@@ -361,12 +397,12 @@ export class StartScene extends Scene {
   private async startCarAnimation(): Promise<void> {
     this.clearInactivityTimeout();
     this.hintHand.fadeOutAndStop();
-    this.game.app.stage.off('pointermove', this.onStagePointerMove);
-    this.game.app.stage.off('pointerup', this.onStagePointerUp);
-    this.game.app.stage.off('pointerupoutside', this.onStagePointerUp);
+    this.game.app.stage.off("pointermove", this.onStagePointerMove);
+    this.game.app.stage.off("pointerup", this.onStagePointerUp);
+    this.game.app.stage.off("pointerupoutside", this.onStagePointerUp);
 
-    const redPoints = this.controller.getPath('red')!.points;
-    const yellowPoints = this.controller.getPath('yellow')!.points;
+    const redPoints = this.controller.getPath("red")!.points;
+    const yellowPoints = this.controller.getPath("yellow")!.points;
 
     const intersection = findPathsIntersection(redPoints, yellowPoints);
     const redEndLen = intersection
@@ -385,13 +421,17 @@ export class StartScene extends Scene {
     this.showFailScreen();
   }
 
-  private driveCarAlongPath(car: Car, points: Point[], endLength: number): Promise<void> {
+  private driveCarAlongPath(
+    car: Car,
+    points: Point[],
+    endLength: number,
+  ): Promise<void> {
     return new Promise((resolve) => {
       const obj = { len: 0 };
-      gsap.to(obj, {
+      const tween = gsap.to(obj, {
         len: endLength,
         duration: DRIVE_DURATION,
-        ease: 'power1.in',
+        ease: "power1.in",
         onUpdate: () => {
           const pos = getPointAtLength(points, obj.len);
           const angle = getAngleAtLength(points, obj.len);
@@ -400,6 +440,7 @@ export class StartScene extends Scene {
         },
         onComplete: resolve,
       });
+      this.activeAnimations.push(tween);
     });
   }
 
@@ -407,7 +448,7 @@ export class StartScene extends Scene {
     const sx = this.root.x;
     const sy = this.root.y;
     return new Promise((resolve) => {
-      gsap
+      const timeline = gsap
         .timeline({
           onComplete: () => {
             this.root.x = sx;
@@ -415,25 +456,30 @@ export class StartScene extends Scene {
             resolve();
           },
         })
-        .to(this.root, { x: sx + 14, y: sy - 6, duration: 0.055, ease: 'none' })
-        .to(this.root, { x: sx - 14, y: sy + 6, duration: 0.055, ease: 'none' })
-        .to(this.root, { x: sx + 10, y: sy - 4, duration: 0.055, ease: 'none' })
-        .to(this.root, { x: sx - 8, y: sy + 4, duration: 0.055, ease: 'none' })
-        .to(this.root, { x: sx + 5, y: sy - 2, duration: 0.055, ease: 'none' })
-        .to(this.root, { x: sx, y: sy, duration: 0.055, ease: 'none' });
+        .to(this.root, { x: sx + 14, y: sy - 6, duration: 0.055, ease: "none" })
+        .to(this.root, { x: sx - 14, y: sy + 6, duration: 0.055, ease: "none" })
+        .to(this.root, { x: sx + 10, y: sy - 4, duration: 0.055, ease: "none" })
+        .to(this.root, { x: sx - 8, y: sy + 4, duration: 0.055, ease: "none" })
+        .to(this.root, { x: sx + 5, y: sy - 2, duration: 0.055, ease: "none" })
+        .to(this.root, { x: sx, y: sy, duration: 0.055, ease: "none" });
+      this.activeAnimations.push(timeline);
     });
   }
 
   // ─── Fail screen ─────────────────────────────────────────────────────────
 
   private showFailScreen(): void {
-    const sprite = new Sprite(AssetLoader.getTexture('fail'));
+    const sprite = new Sprite(AssetLoader.getTexture("fail"));
     sprite.anchor.set(0.5);
     sprite.alpha = 0;
     // Must sit above root (zIndex=10) and hint, but below finalOverlay (zIndex=30)
     sprite.zIndex = 25;
     this.failSprite = sprite;
-    this.positionFailSprite(sprite, this.game.viewportWidth, this.game.viewportHeight);
+    this.positionFailSprite(
+      sprite,
+      this.game.viewportWidth,
+      this.game.viewportHeight,
+    );
     this.addChild(sprite);
 
     // Start at 55 % scale
@@ -441,19 +487,28 @@ export class StartScene extends Scene {
     const targetScaleY = sprite.scale.y;
     sprite.scale.set(targetScaleX * 0.55, targetScaleY * 0.55);
 
-    gsap.to(sprite, { alpha: 1, duration: 0.35, ease: 'power2.out' });
-    gsap.to(sprite.scale, {
+    const alphaTween = gsap.to(sprite, {
+      alpha: 1,
+      duration: 0.35,
+      ease: "power2.out",
+    });
+    const scaleTween = gsap.to(sprite.scale, {
       x: targetScaleX,
       y: targetScaleY,
       duration: 0.45,
-      ease: 'back.out(1.6)',
+      ease: "back.out(1.6)",
       onComplete: () => {
         window.setTimeout(() => this.showCTA(), 900);
       },
     });
+    this.activeAnimations.push(alphaTween, scaleTween);
   }
 
-  private positionFailSprite(sprite: Sprite, width: number, height: number): void {
+  private positionFailSprite(
+    sprite: Sprite,
+    width: number,
+    height: number,
+  ): void {
     sprite.position.set(width * 0.5, height * 0.42);
     const targetW = width * 0.74;
     const ratio = sprite.texture.height / sprite.texture.width;
@@ -463,9 +518,14 @@ export class StartScene extends Scene {
 
   private showCTA(): void {
     this.finalOverlay.visible = true;
-    gsap.to(this.finalOverlay, { alpha: 1, duration: 0.45, ease: 'power1.out' });
-    this.finalOverlay.button.once('pointerdown', () => {
-      window.open(GAME_CONFIG.ctaUrl, '_blank');
+    const tween = gsap.to(this.finalOverlay, {
+      alpha: 1,
+      duration: 0.45,
+      ease: "power1.out",
+    });
+    this.activeAnimations.push(tween);
+    this.finalOverlay.button.once("pointerdown", () => {
+      window.open(GAME_CONFIG.ctaUrl, "_blank");
     });
   }
 
@@ -493,9 +553,14 @@ export class StartScene extends Scene {
     this.clearInactivityTimeout();
     this.hintHand.fadeOutAndStop();
     this.finalOverlay.visible = true;
-    gsap.to(this.finalOverlay, { alpha: 1, duration: 0.5, ease: 'power1.out' });
-    this.finalOverlay.button.once('pointerdown', () => {
-      window.open(GAME_CONFIG.ctaUrl, '_blank');
+    const tween = gsap.to(this.finalOverlay, {
+      alpha: 1,
+      duration: 0.5,
+      ease: "power1.out",
+    });
+    this.activeAnimations.push(tween);
+    this.finalOverlay.button.once("pointerdown", () => {
+      window.open(GAME_CONFIG.ctaUrl, "_blank");
     });
   }
 }
